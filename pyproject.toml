@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "exif-tagger"
+version = "0.1.0"
+description = "Edit EXIF data easily"
+authors = ["Pierre Louvart <pierre.louvart@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "exif_tagger", from="src"}]
+
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pyqt6 = "^6.6.1"
+pyqt6-webengine = "^6.6.0"
+folium = "^0.15.1"
+numpy = "^1.26.3"
+shapely = "^2.0.2"
+pillow = "^10.2.0"
+facenet-pytorch = "^2.5.3"
+pandas = "^2.2.0"
+tqdm = "^4.66.1"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
