@@ -1,3 +1,5 @@
 /.venv
 /db
 /poetry.lock
+*.jpg
+*.jpeg
