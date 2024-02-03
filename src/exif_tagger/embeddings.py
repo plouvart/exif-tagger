@@ -47,8 +47,15 @@ def generate_embeddings(
                 aligned.append(x_aligned)
                 names.append(dataset.idx_to_class[y])
 
-        aligned = torch.stack(aligned).to(device)
-        embeddings = resnet(aligned).detach().cpu()
+        for v in aligned:
+            print("ALIGNED", len(aligned), aligned[0].shape)
+            print("STACKED", torch.stack(aligned).shape)
+            print(v)
+
+            input("Continue? <Press Enter>")
+
+        stacked_img = torch.stack(aligned).to(device)
+        embeddings = resnet(stacked_img).detach().cpu()
 
         all_embeddings.append(embeddings)
         all_classes.extend(names)

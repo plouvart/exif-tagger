@@ -17,16 +17,34 @@ from shapely import to_geojson
 from facenet_pytorch import MTCNN
 from PyQt6.QtWidgets import QWidget
 
-from exif_tagger.database import Face, Person, Picture, FaceDatabase
+from exif_tagger.database import (
+    Face,
+    Person,
+    Picture,
+    FaceDatabase,
+    UNKNOWN_PERSON,
+    UNKNOWN_PICTURE,
+)
 from exif_tagger.person_ui import PersonDatabaseDialog
+from exif_tagger.face_recognition import FaceRecognitionModel
 
 
 # DEFAULT_IMG_PATH = Path("res/default-img.jpg")
 DEFAULT_IMG_PATH = Path(
-    "/home/pierre/repositories/exif-tagger/res/PXL_20231207_094042805.jpg"
+    "test/test_pierre/PXL_20231129_073648773.jpg"
+    # "/home/pierre/repositories/exif-tagger/test/test_big/PXL_20231104_010247517.MP.jpg"
 )
 
 DEFAULT_DB_PATH = Path("/home/pierre/repositories/exif-tagger/db/face-database.sqlite")
+DEFAULT_FACE_RECOGNITION_PATH = Path(
+    "/home/pierre/repositories/exif-tagger/models/face-recognition.joblib"
+)
+DEFAULT_UNKNOWN_EMBEDDING_PATH = Path(
+    "/home/pierre/repositories/exif-tagger/res/embeddings_vg2.npy"
+)
+DEFAULT_UNKNOWN_CLASSES_PATH = Path(
+    "/home/pierre/repositories/exif-tagger/res/names.json"
+)
 
 
 lat_sign = {
@@ -195,6 +213,7 @@ class PictureArea(QWidget):
     def __init__(
         self,
         database: FaceDatabase,
+        face_recognition_model: FaceRecognitionModel,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -213,36 +232,30 @@ class PictureArea(QWidget):
         self.view_transform = None
 
         self.untrackButton = QPushButton("Untrack Picture")
-        # self.loadButton = QPushButton("Reload Faces")
         self.detectButton = QPushButton("Detect Faces")
-        # self.loadButton.clicked.connect(lambda _: self.loadFaces())
         self.detectButton.clicked.connect(lambda _: self.detectFaces())
         self.untrackButton.clicked.connect(lambda _: self.untrackPicture())
-
         self.button_layout = QHBoxLayout()
         self.button_layout.addWidget(self.untrackButton)
-        # self.button_layout.addWidget(self.loadButton)
         self.button_layout.addWidget(self.detectButton)
 
+        self.autopredict_checkbox = QCheckBox("Auto-predict people")
+        self.autopredict_checkbox.setCheckState(Qt.CheckState.Checked)
+        self.checkbox_layout = QHBoxLayout()
+        self.checkbox_layout.addWidget(self.autopredict_checkbox)
+
         self.layout = QVBoxLayout()
+        self.layout.addLayout(self.checkbox_layout)
         self.layout.addWidget(self.view)
         self.layout.addLayout(self.button_layout)
         self.setLayout(self.layout)
 
         self.database = database
-
-        self.mtcnn = MTCNN(
-            image_size=160,
-            margin=0,
-            min_face_size=20,
-            thresholds=[0.6, 0.7, 0.7],
-            factor=0.709,
-            post_process=True,
-        )
+        self.face_recognition_model = face_recognition_model
 
     def loadImage(self, filename: Path):
         self.img = PIL.Image.open(filename)
-        self.picture = Picture(filename=filename)
+        self.picture = Picture(filename=filename.absolute())
 
         self.scene.clear()
         self.rects.clear()
@@ -281,18 +294,15 @@ class PictureArea(QWidget):
             return
         self.trackPicture()
         self.database.deleteFacesByPictureId(self.picture.id)
-        boxes, _ = self.mtcnn.detect(img=self.img)
-        boxes = [] if boxes is None else boxes
-        self.faces = [
-            Face(
-                person_id=self.database.UNKNOWN_PERSON.id,
-                picture_id=self.picture.id,
-                bbox=[int(d) for d in bbox],
-            )
-            for bbox in boxes
-        ]
+
+        self.faces = self.face_recognition_model.detect_faces(
+            self.img,
+            infer_from_model=self.autopredict_checkbox.isChecked(),
+        )
         for face in self.faces:
-            self.database.createFace(face=face)
+            face.picture_id = self.picture.id
+            face.id = self.database.createFace(face=face)
+            assert face.id is not None, f"Could not insert {face=} into database!"
 
         self.displayFaces()
 
@@ -309,11 +319,15 @@ class PictureArea(QWidget):
         for i, face in enumerate(self.faces):
             x1, y1, x2, y2 = face.bbox
 
-            color = (
-                Qt.GlobalColor.red
-                if face.person_id == self.database.UNKNOWN_PERSON.id
-                else Qt.GlobalColor.green
-            )
+            # Get adequate color
+            if face.confirmed:
+                if face.person_id == UNKNOWN_PERSON.id:
+                    color = Qt.GlobalColor.red
+                else:
+                    color = Qt.GlobalColor.green
+            else:
+                color = Qt.GlobalColor.darkYellow
+
             pen = QPen(color)
             pen.setWidth(8)
             rect = self.scene.addRect(x1, y1, x2 - x1, y2 - y1, pen=pen)
@@ -326,9 +340,7 @@ class PictureArea(QWidget):
                 combobox.addItem(person.present(), person)
             cur_index = [person.id for person in all_persons].index(face.person_id)
             combobox.setCurrentIndex(cur_index)
-            combobox.currentIndexChanged.connect(
-                lambda _, ind=i: self.onChangeCombobox(ind)
-            )
+            combobox.activated.connect(lambda _, ind=i: self.onChangeCombobox(ind))
             FACTOR = 7
             scale = max(self.img.width, self.img.height) / combobox.width() / FACTOR
             proxy.setTransform(QTransform().scale(scale, scale))
@@ -342,17 +354,27 @@ class PictureArea(QWidget):
     def onChangeCombobox(self, ind: int):
         combobox = self.comboboxes[ind]
         person: Person = combobox.widget().currentData()
-        color = (
-            Qt.GlobalColor.red
-            if person == self.database.UNKNOWN_PERSON
-            else Qt.GlobalColor.green
-        )
         face = self.faces[ind]
         face.person_id = person.id
+        face.confirmed = True
         self.database.updateFace(face)
+        if face.person_id == UNKNOWN_PERSON.id:
+            color = Qt.GlobalColor.red
+        else:
+            color = Qt.GlobalColor.green
         pen = QPen(color)
         pen.setWidth(8)
         self.rects[ind].setPen(pen)
+
+        # If a new known person is added to database
+        # trigger a model update
+        if face.person_id != UNKNOWN_PERSON.id:
+            self.face_recognition_model.train_person(
+                person_id=face.person_id,
+                embeddings=self.database.getEmbeddingsForPerson(
+                    person_id=face.person_id,
+                ),
+            )
 
     def untrackPicture(self):
         self.database.deletePicture(self.picture)
@@ -364,13 +386,21 @@ class PictureArea(QWidget):
 
 
 class MainWidget(QWidget):
-    def __init__(self, database: FaceDatabase, parent=None):
+    def __init__(
+        self,
+        database: FaceDatabase,
+        face_recognition_model: FaceRecognitionModel,
+        parent=None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("EXIF Editor")
         # self.resize(800, 800)
         self.cur_filename: Path | None = DEFAULT_IMG_PATH
 
-        self.picture_area = PictureArea(database)
+        self.picture_area = PictureArea(
+            database=database,
+            face_recognition_model=face_recognition_model,
+        )
         self.exif_editor = ExifEditor()
 
         self.layout = QHBoxLayout()
@@ -416,8 +446,28 @@ class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Picture Tagger")
+        print(f"Loading Database from {DEFAULT_DB_PATH}")
         self.database = FaceDatabase(database_path=DEFAULT_DB_PATH)
-        self.main_widget = MainWidget(self.database)
+        if DEFAULT_FACE_RECOGNITION_PATH.exists():
+            print(
+                f"Loading Face Recognition Model from {DEFAULT_FACE_RECOGNITION_PATH}"
+            )
+            self.face_recognition_model = FaceRecognitionModel.from_file(
+                DEFAULT_FACE_RECOGNITION_PATH,
+            )
+        else:
+            print(
+                f"Generating Face Recognition Model from {DEFAULT_UNKNOWN_EMBEDDING_PATH}"
+            )
+            self.face_recognition_model = FaceRecognitionModel.from_embeddings(
+                embeddings_filename=DEFAULT_UNKNOWN_EMBEDDING_PATH,
+                classes_filename=DEFAULT_UNKNOWN_CLASSES_PATH,
+            )
+            print(f"Saving Face Recognition Model to {DEFAULT_FACE_RECOGNITION_PATH}")
+            self.face_recognition_model.to_file(
+                DEFAULT_FACE_RECOGNITION_PATH,
+            )
+        self.main_widget = MainWidget(self.database, self.face_recognition_model)
 
         self.menuBar = QMenuBar(self)
 

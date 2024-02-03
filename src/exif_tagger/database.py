@@ -3,11 +3,15 @@ import sqlite3
 import pandas as pd
 import json
 from dataclasses import dataclass
+import numpy as np
+import io
+import PIL.Image
+from facenet_pytorch import MTCNN, extract_face
 
 
 @dataclass
 class Picture:
-    filename: Path | str
+    filename: Path | str | None
     id: int | None = None
 
     def fromSQL(row):
@@ -19,13 +23,20 @@ class Picture:
 class Face:
     person_id: int
     picture_id: int
+    confirmed: bool
     bbox: tuple[int, int, int, int]
+    embedding: np.ndarray
     id: int | None = None
 
     def fromSQL(row):
-        id, person_id, picture_id, x1, y1, x2, y2 = row
+        id, person_id, picture_id, confirmed, x1, y1, x2, y2, embedding = row
         return Face(
-            person_id=person_id, picture_id=picture_id, bbox=(x1, y1, x2, y2), id=id
+            person_id=person_id,
+            picture_id=picture_id,
+            confirmed=confirmed,
+            bbox=(x1, y1, x2, y2),
+            embedding=convert_array(embedding),
+            id=id,
         )
 
 
@@ -48,6 +59,29 @@ class Person:
         return self.name == other.name and self.surname == other.surname
 
 
+UNKNOWN_PERSON: Person = Person(id=1, name="Unknown", surname="Unknown")
+UNKNOWN_PICTURE: Picture = Picture(id=1, filename=None)
+
+
+compressor = "zlib"  # zlib, bz2
+
+
+def adapt_array(arr):
+    """
+    http://stackoverflow.com/a/31312102/190597 (SoulNibbler)
+    """
+    out = io.BytesIO()
+    np.save(out, arr, allow_pickle=True)
+    out.seek(0)
+    return sqlite3.Binary(out.read())
+
+
+def convert_array(text):
+    out = io.BytesIO(text)
+    out.seek(0)
+    return np.load(out, allow_pickle=True)
+
+
 class FaceDatabase:
     pictures_table_creation = """
         CREATE TABLE IF NOT EXISTS pictures (
@@ -61,10 +95,12 @@ class FaceDatabase:
             id integer PRIMARY KEY,
             person_id integer NOT NULL,
             picture_id integer NOT NULL,
-            x int,
-            y int,
-            w int,
-            h int,
+            confirmed int,
+            x integer,
+            y integer,
+            w integer,
+            h integer,
+            embedding blob,
             CONSTRAINT fk_persons
                 FOREIGN KEY (person_id)
                 REFERENCES persons(id)
@@ -90,8 +126,9 @@ class FaceDatabase:
         self.createTable(self.persons_table_creation)
         self.createTable(self.pictures_table_creation)
         if self.getUnknownPerson() is None:
+            print("Creating Unknown Person")
             self.createPerson(Person(name="Unknown", surname="Unknown"))
-        self.UNKNOWN_PERSON = self.getUnknownPerson()
+            assert UNKNOWN_PERSON == self.getUnknownPerson()
 
     def createTable(self, create_table_sql):
         c = self.conn.cursor()
@@ -113,13 +150,13 @@ class FaceDatabase:
     def deletePicture(self, picture: Picture):
         sql = "DELETE FROM pictures WHERE id=?"
         cur = self.conn.cursor()
-        cur.execute(sql, (picture.id,))
+        cur.execute(sql, (int(picture.id),))
         self.conn.commit()
 
     def getPictureById(self, picture_id: int) -> Picture | None:
         sql = "SELECT id, filename FROM pictures WHERE id = ?"
         cur = self.conn.cursor()
-        cur.execute(sql, (picture_id,))
+        cur.execute(sql, (int(picture_id),))
 
         row = cur.fetchone()
         if row is None:
@@ -156,7 +193,7 @@ class FaceDatabase:
             SELECT COUNT(*) FROM persons WHERE name=? AND surname=?
         """
         cur = self.conn.cursor()
-        cur.execute(sql, (person.name, person.surname))
+        cur.execute(sql, (str(person.name), str(person.surname)))
         self.conn.commit()
         return cur.fetchone()[0] > 0
 
@@ -169,47 +206,76 @@ class FaceDatabase:
                 VALUES(?,?)
         """
         cur = self.conn.cursor()
-        cur.execute(sql, (person.name, person.surname))
+        cur.execute(sql, (str(person.name), str(person.surname)))
         self.conn.commit()
         return cur.lastrowid
 
     def deletePerson(self, person):
         sql = "DELETE FROM persons WHERE id=?"
         cur = self.conn.cursor()
-        cur.execute(sql, (person.id,))
+        cur.execute(sql, (int(person.id),))
         self.conn.commit()
 
     def createFace(self, face: Face):
         sql = """
-            INSERT INTO faces(person_id, picture_id, x, y, w, h)
-                VALUES(?, ?, ?, ?, ?, ?)
+            INSERT INTO faces(person_id, picture_id, confirmed, x, y, w, h, embedding)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
         """
         cur = self.conn.cursor()
         x, y, w, h = face.bbox
-        cur.execute(sql, (face.person_id, face.picture_id, x, y, w, h))
+        assert (
+            self.getPictureById(face.picture_id) is not None
+        ), f"No such picture as {face.picture_id=}"
+        assert (
+            self.getPersonById(face.person_id) is not None
+        ), f"No such person as {face.person_id=}"
+
+        cur.execute(
+            sql,
+            (
+                int(face.person_id),
+                int(face.picture_id),
+                int(face.confirmed),
+                x,
+                y,
+                w,
+                h,
+                adapt_array(face.embedding),
+            ),
+        )
+
         self.conn.commit()
         return cur.lastrowid
 
     def getPersonById(self, person_id):
         sql = "SELECT id, name, surname FROM persons WHERE id=?"
         cur = self.conn.cursor()
-        cur.execute(sql, (person_id,))
+        cur.execute(sql, (int(person_id),))
 
         row = cur.fetchone()
         return Person.fromSQL(row)
 
+    def getEmbeddingsForPerson(self, person_id):
+        sql = "SELECT embedding FROM faces WHERE person_id=?"
+        cur = self.conn.cursor()
+        cur.execute(sql, (int(person_id),))
+
+        rows = cur.fetchall()
+        embeddings = [convert_array(embedding) for (embedding,) in rows]
+        return embeddings
+
     def getPersonsByNameSurname(self, name: str, surname: str):
         sql = "SELECT id, name, surname FROM persons WHERE name=? AND surname=?"
         cur = self.conn.cursor()
-        cur.execute(sql, (name, surname))
+        cur.execute(sql, (str(name), str(surname)))
 
         rows = cur.fetchall()
         return [Person.fromSQL(row) for row in rows]
 
     def updatePerson(self, person: Person):
-        if self.getPersonById(person.id) == self.UNKNOWN_PERSON:
-            print("The unknown person cannot be edited!")
-            return
+        assert (
+            self.getPersonById(person.id) != UNKNOWN_PERSON
+        ), "The unknown person cannot be edited!"
         sql = """
             UPDATE persons
             SET name = ?, surname = ?
@@ -218,7 +284,7 @@ class FaceDatabase:
         cur = self.conn.cursor()
         cur.execute(
             sql,
-            (person.name, person.surname, person.id),
+            (str(person.name), str(person.surname), int(person.id)),
         )
         self.conn.commit()
 
@@ -233,33 +299,42 @@ class FaceDatabase:
     def updateFace(self, face: Face):
         sql = """
             UPDATE faces
-            SET person_id = ?, picture_id = ?, x = ?, y = ?, w = ?, h = ?
+            SET person_id = ?, picture_id = ?, confirmed = ?, x = ?, y = ?, w = ?, h = ?, embedding = ?
             WHERE id = ?;
         """
         cur = self.conn.cursor()
         x, y, w, h = face.bbox
         cur.execute(
             sql,
-            (face.person_id, face.picture_id, x, y, w, h, face.id),
+            (
+                int(face.person_id),
+                int(face.picture_id),
+                int(face.confirmed),
+                x,
+                y,
+                w,
+                h,
+                adapt_array(face.embedding),
+                int(face.id),
+            ),
         )
         self.conn.commit()
 
-    def getFacesByPersonId(self, person_id: int):
-        sql = (
-            "SELECT id, person_id, picture_id, x, y, w, h FROM faces WHERE person_id=?"
-        )
+    def getFacesByPersonId(self, person_id: int, confirmed_only: bool = True):
+        sql = """
+        SELECT id, person_id, picture_id, confirmed, x, y, w, h, embedding FROM faces
+            WHERE person_id=? AND confirmed = ?
+        """
         cur = self.conn.cursor()
-        cur.execute(sql, (person_id,))
+        cur.execute(sql, (int(person_id), int(confirmed_only)))
 
         rows = cur.fetchall()
         return [Face.fromSQL(row) for row in rows]
 
     def getFacesByPictureId(self, picture_id: int):
-        sql = (
-            "SELECT id, person_id, picture_id, x, y, w, h FROM faces WHERE picture_id=?"
-        )
+        sql = "SELECT id, person_id, picture_id, confirmed, x, y, w, h, embedding FROM faces WHERE picture_id=?"
         cur = self.conn.cursor()
-        cur.execute(sql, (picture_id,))
+        cur.execute(sql, (int(picture_id),))
 
         rows = cur.fetchall()
         return [Face.fromSQL(row) for row in rows]
@@ -267,7 +342,7 @@ class FaceDatabase:
     def deleteFacesByPictureId(self, picture_id: int):
         sql = "DELETE FROM faces WHERE picture_id=?"
         cur = self.conn.cursor()
-        cur.execute(sql, (picture_id,))
+        cur.execute(sql, (int(picture_id),))
         self.conn.commit()
 
     def saveFaces(self, faces: list[Face]):
@@ -275,7 +350,7 @@ class FaceDatabase:
             self.createFace(face=face)
 
     def getFaces(self):
-        sql = "SELECT id, person_id, picture_id, x, y, w, h FROM faces"
+        sql = "SELECT id, person_id, picture_id, confirmed, x, y, w, h, embedding FROM faces"
         cur = self.conn.cursor()
         cur.execute(sql)
 
@@ -291,6 +366,39 @@ class FaceDatabase:
         if row is None:
             return None
         return Person.fromSQL(row)
+
+    def getImagesForPerson(
+        self, person_id: int, confirmed_only: bool = True
+    ) -> list[PIL.Image.Image]:
+        mtcnn = MTCNN(
+            image_size=160,
+            margin=0,
+            min_face_size=20,
+            thresholds=[0.6, 0.7, 0.7],
+            factor=0.709,
+            post_process=True,
+        )
+        faces = self.getFacesByPersonId(person_id, confirmed_only=confirmed_only)
+        imgs = [
+            PIL.Image.fromarray(
+                extract_face(
+                    img=PIL.Image.open(self.getPictureById(face.picture_id).filename),
+                    box=face.bbox,
+                )
+                .numpy()
+                .astype(np.uint8)
+                .transpose(1, 2, 0)
+            )
+            for face in faces
+        ]
+        return imgs
+
+    def purgeOrphanPictures(self, blank=False):
+        pictures = self.getPictures()
+        for picture in pictures:
+            if not Path(picture.filename).exists():
+                print(f"{picture.filename} does not exists!")
+                self.deletePicture(picture)
 
     def __del__(self):
         self.conn.close()

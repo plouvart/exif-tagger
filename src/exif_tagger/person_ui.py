@@ -16,7 +16,7 @@ import PIL.ExifTags
 from shapely.geometry import Polygon
 from shapely import to_geojson
 from facenet_pytorch import MTCNN
-from exif_tagger.database import Face, Person, FaceDatabase
+from exif_tagger.database import Face, Person, FaceDatabase, UNKNOWN_PERSON
 
 
 class LineEditDelegate(QStyledItemDelegate):
@@ -51,17 +51,13 @@ class PersonListModel(QAbstractTableModel):
         self.database = database
         self.headers = ["id", "name", "surname"]
         self.persons = [
-            person
-            for person in self.database.getPersons()
-            if person != self.database.UNKNOWN_PERSON
+            person for person in self.database.getPersons() if person != UNKNOWN_PERSON
         ]
 
     def reset(self):
         self.beginResetModel()
         self.persons = [
-            person
-            for person in self.database.getPersons()
-            if person != self.database.UNKNOWN_PERSON
+            person for person in self.database.getPersons() if person != UNKNOWN_PERSON
         ]
         self.endResetModel()
 
