@@ -1,15 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('./models/face-recognition.joblib', './models/')]
+datas = [('./models/face-recognition.joblib', './models/'), ('./db/face-database.sqlite3', './db/')]
 binaries = []
-hiddenimports = []
+hiddenimports = ['sklearn.metrics._pairwise_distances_reduction._datasets_pair', 'sklearn.metrics._pairwise_distances_reduction._middle_term_computer']
 tmp_ret = collect_all('facenet_pytorch')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['/home/pierre/repositories/exif-tagger/src/exif_tagger/main.py'],
+    ['C:\\Users\\pierr\\repositories\\exif-tagger\\src\\exif_tagger\\main.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -35,7 +35,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

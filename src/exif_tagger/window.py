@@ -35,7 +35,7 @@ DEFAULT_IMG_PATH = Path(
     # "/home/pierre/repositories/exif-tagger/test/test_big/PXL_20231104_010247517.MP.jpg"
 )
 
-DEFAULT_DB_PATH = Path("./db/face-database.sqlite")
+DEFAULT_DB_PATH = Path("./db/face-database.sqlite3")
 DEFAULT_FACE_RECOGNITION_PATH = Path("./models/face-recognition.joblib")
 DEFAULT_UNKNOWN_EMBEDDING_PATH = Path("./models/embeddings_vg2.npy")
 DEFAULT_UNKNOWN_CLASSES_PATH = Path("./models/exif-tagger/res/names.json")

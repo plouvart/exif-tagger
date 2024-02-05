@@ -1,7 +1,5 @@
 from joblib import dump, load
 from pathlib import Path
-from sklearn.mixture import GaussianMixture
-from sklearn.decomposition import PCA
 import numpy as np
 from facenet_pytorch import (
     InceptionResnetV1,
@@ -13,6 +11,9 @@ import torch
 import PIL.Image
 import json
 import tqdm
+from sklearn.mixture import GaussianMixture
+from sklearn.decomposition import PCA
+
 
 from exif_tagger.database import Face, UNKNOWN_PERSON, UNKNOWN_PICTURE
 
