@@ -1,6 +1,8 @@
 /.venv
 /db
 /poetry.lock
-*.jpg
-*.jpeg
-*.mp4
+/build
+/dist
+/test
+/res
+*.pyc

@@ -120,6 +120,7 @@ class FaceDatabase:
     """
 
     def __init__(self, database_path: Path) -> None:
+        database_path.mkdir(exist_ok=True, parents=True)
         self.conn = sqlite3.connect(database=database_path)
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.createTable(self.faces_table_creation)

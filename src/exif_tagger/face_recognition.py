@@ -90,13 +90,18 @@ class FaceRecognitionModel:
                 gm.precisions_cholesky_,
             ]
         )
-        self.gauss_model.weights_ = np.ones((n_components,)) / np.sum(n_components)
+        w = np.ones(
+            (len(self.gauss_model.weights_) - (person_id in self.person_ids) + 1,)
+        )
         self.person_ids = np.concatenate(
             [
                 self.person_ids[self.person_ids != person_id],
                 [person_id],
             ]
         )
+        w[self.person_ids != UNKNOWN_PERSON.id] = 1.0
+        # w[self.person_ids == UNKNOWN_PERSON.id] = 0
+        self.gauss_model.weights_ = w / np.sum(w)
         print(self.gauss_model.means_)
 
     def infer_person(self, embedding: np.ndarray):
@@ -110,58 +115,6 @@ class FaceRecognitionModel:
         #         zip(self.gauss_model.predict_proba(small_embedding)[0], self.person_ids)
         #     )
         # )
-        try:
-            print(
-                "Unknown MEDIAN",
-                np.median(
-                    self.gauss_model.predict_proba(small_embedding)[0][
-                        self.person_ids != 2
-                    ]
-                ),
-            )
-            print(
-                "Unknown MEAN",
-                np.mean(
-                    self.gauss_model.predict_proba(small_embedding)[0][
-                        self.person_ids != 2
-                    ]
-                ),
-            )
-            print(
-                "Unknown MIN",
-                np.min(
-                    self.gauss_model.predict_proba(small_embedding)[0][
-                        self.person_ids != 2
-                    ]
-                ),
-            )
-            print(
-                "Unknown MAX",
-                np.max(
-                    self.gauss_model.predict_proba(small_embedding)[0][
-                        self.person_ids != 2
-                    ]
-                ),
-            )
-            print(
-                "argMAX",
-                np.argmax(
-                    self.gauss_model.predict_proba(small_embedding)[0][
-                        self.person_ids != 2
-                    ]
-                ),
-                len(self.person_ids),
-            )
-            print(
-                self.gauss_model.predict_proba(small_embedding)[0][self.person_ids == 2]
-            )
-        except Exception as e:
-            print(e)
-            print(
-                "CLASS 2 does not exist?",
-                len(self.person_ids),
-                len(self.gauss_model.means_),
-            )
         return predicted_person_id
 
     def from_embeddings(
