@@ -12,7 +12,9 @@ Features:
 - Auto-detect faces in images.
 - Allow the user to confirm the identities of people in a picture.
 - Auto-classify detected faces and predict the corresponding persons based on a ML model.
-- Can be compiled to a standalone executable for both Linux/Windows
+- Can be compiled into a standalone executable (with a self contained sqlite database) for both Linux/Windows
+
+![example of tagging](doc/face_recognition.gif)
 
 
 ## How does it work?
