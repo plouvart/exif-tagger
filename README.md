@@ -49,7 +49,22 @@ In this repository, we chose the second option, but maybe we will use a mix of b
 A set of 500 facial profiles from VG2 was computed into their vector embeddings and into their respective gaussian components.  
 
 
-## Current limitations and planned features
+## Disclaimer
+
+Right now, the status of this application is set as work in progress ⚠️.
+It is NOT intended to be used for any serious work, but the plan is that it is in the future.
+
+Currently, the application requires a LOT of images of the same person. I'm exploring ways to mitigate it.
+
+## Feature wishlist
+
+The following features would be nice to implement:
+
+- Automatically write image description using the people identified in a picture, as well as the time and place.
+- Automatically predict people in a whole picture folder
+- Folder view navigation on the side
+- Map with different photo markers (tagged/untagged) for swift photo exploration
+
 
 ## Credit
 
