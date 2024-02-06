@@ -217,13 +217,14 @@ class PictureArea(QWidget):
         self.picture = None
         self.faces: list[Face] = []
 
+        self.pixmap = None
         self.pixmap_item = None
         self.scene = QGraphicsScene()
         self.view = QGraphicsView()
         self.view.setScene(self.scene)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.view.setBackgroundBrush(Qt.GlobalColor.blue)
+        self.view.setBackgroundBrush(Qt.GlobalColor.darkGray)
         self.view_transform = None
 
         self.untrackButton = QPushButton("Untrack Picture")
@@ -257,14 +258,9 @@ class PictureArea(QWidget):
         self.comboboxes.clear()
 
         pixmap = QPixmap(str(filename), format="jpg")
-        if pixmap.width() > pixmap.height():
-            r = self.view.width() / pixmap.width()
-            self.view_transform = QTransform().scale(r, r)
-        else:
-            r = self.view.height() / pixmap.height()
-            self.view_transform = QTransform().scale(r, r)
+        self.pixmap = pixmap
         self.pixmap_item = self.scene.addPixmap(pixmap)
-        self.view.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+        self.refitView()
 
         self.loadFaces()
 
@@ -388,8 +384,26 @@ class PictureArea(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        # self.view.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+        self.refitView()
+
+    def refitView(self):
         if self.pixmap_item is not None:
-            self.view.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+            print("RESIZED")
+            # self.view.adjustSize()
+            if (
+                self.pixmap.width() / self.pixmap.height()
+                > self.view.width() / self.view.height()
+            ):
+                r = self.view.width() / self.pixmap.width()
+                self.view_transform = QTransform().scale(r, r)
+            else:
+                r = self.view.height() / self.pixmap.height()
+                self.view_transform = QTransform().scale(r, r)
+            self.view.setTransform(self.view_transform)
+            rect = self.pixmap_item.boundingRect()
+            print("RESIZED", self.view.size(), self.pixmap.size())
+            self.view.centerOn(rect.center())
 
 
 class MainWidget(QWidget):
@@ -414,6 +428,8 @@ class MainWidget(QWidget):
         self.layout.addWidget(self.picture_area)
         self.layout.addWidget(self.exif_editor)
         self.setLayout(self.layout)
+
+        self.loadImg(DEFAULT_IMG_PATH)
 
     def loadImg(self, filename: Path):
         print(f"Loading {filename}...")
@@ -491,12 +507,14 @@ class MainWindow(QMainWindow):
         self.setMenuBar(self.menuBar)
 
         self.setCentralWidget(self.main_widget)
+        self.resize(1200, 800)
 
     def openFile(self):
         filename = QFileDialog.getOpenFileName(
             self, "Open File", "/home", "Images (*.tiff *.jpg)"
         )
-        self.main_widget.loadImg(filename[0])
+        if len(filename) != 0:
+            self.main_widget.loadImg(filename[0])
 
     def openPersonDatabase(self):
         person_dialog = PersonDatabaseDialog(parent=None, database=self.database)
