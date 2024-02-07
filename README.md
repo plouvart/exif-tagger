@@ -42,7 +42,7 @@ There are cases where the person we try to identify is not part of the people we
 In such cases we would like to classify such individual as unknown. \
 There are two main methods for doing this:
 
-- Either by thresholding the likelyhood of the sample belonging to any cluster.
+- Either by thresholding the likelihood of the sample belonging to any cluster.
 - Or by incorporating many unknown facial profiles in the embedded space.
 
 In this repository, we chose the second option, but maybe we will use a mix of both in the future. \
